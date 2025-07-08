@@ -5,14 +5,14 @@ A collection of Python scripts for managing Nobl9 SLO annotations. This folder c
 ## Scripts Overview
 
 ### 1. `annotation_creator.py` - Interactive Annotation Creation
-**Purpose**: Create annotations interactively with support for projects, services, or individual SLOs.
+**Purpose**: Create bulk annotations interactively with support for project, service, or individual SLO level annotation creation.
 
 **Key Features**:
 - **Multiple Target Types**: Apply annotations to all SLOs in a project, service, or selected individual SLOs
 - **Unique UUID Per Annotation**: Each annotation gets its own unique UUID identifier
-- **Markdown Support**: Rich text descriptions with links, bold text, lists, and more
+- **Markdown Support**: Rich text descriptions with links
 - **Timestamp Validation**: Ensures proper RFC3339 format with automatic correction
-- **Custom Instance Support**: Works with both Nobl9 Cloud and custom Nobl9 instances
+- **Custom Instance Support**: Works with all types of Nobl9 organizations
 - **Comprehensive Logging**: All actions logged to local files with timestamps
 - **Interactive UI**: Color-coded terminal output with clear guidance
 
@@ -23,7 +23,7 @@ A collection of Python scripts for managing Nobl9 SLO annotations. This folder c
 - **Time-based Filtering**: Filter annotations by custom time periods
 - **Type-based Filtering**: Filter by annotation categories/types
 - **Multiple Export Formats**: CSV, JSON, and Excel export options
-- **Custom Instance Support**: Works with both Nobl9 Cloud and custom instances
+- **Custom Instance Support**: Works with all types of Nobl9 organizations
 - **Comprehensive Analysis**: Annotation type analysis and statistics
 - **Flexible Output**: Display in terminal or export to files
 
