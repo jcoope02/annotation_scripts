@@ -277,15 +277,16 @@ Both scripts read from `~/.config/nobl9/config.toml`:
 [contexts.my-context]
 clientId = "your-client-id"
 clientSecret = "your-client-secret"
-organization = "your-org-id"
 accessToken = "optional-existing-token"
 
 # For custom instances
 [contexts.custom-context]
-url = "https://your-instance.nobl9.com"
 clientId = "your-client-id"
 clientSecret = "your-client-secret"
-organization = "your-org-id"
+accessToken = "optional-existing-token"
+url = "https://custom.nobl9.com/api"
+oktaOrgURL = "https://xxxxxxx"
+oktaAuthServer = "xxxxxxxxxx"
 ```
 
 ### Logging
