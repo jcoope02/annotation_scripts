@@ -466,12 +466,13 @@ def create_annotations_for_slos(slos_list, description, start_time, end_time,
     
     for slo in slos_list:
         slo_name = slo.get('metadata', {}).get('name')
+        slo_display_name = slo.get('metadata', {}).get('displayName', slo_name)
         slo_project = slo.get('metadata', {}).get('project')
         
         if slo_name and slo_project:
             # Generate unique UUID for each annotation
             annotation_uuid = str(uuid.uuid4())
-            print_colored(f"Creating annotation {annotation_uuid} for SLO '{slo_name}'", Colors.CYAN)
+            print_colored(f"Creating annotation {annotation_uuid} for SLO '{slo_display_name}'", Colors.CYAN)
             
             annotation_data = {
                 "name": annotation_uuid,
@@ -479,7 +480,8 @@ def create_annotations_for_slos(slos_list, description, start_time, end_time,
                 "startTime": start_time,
                 "endTime": end_time,
                 "project": slo_project,
-                "slo": slo_name
+                "slo": slo_name,
+                "slo_display_name": slo_display_name  # Pass display name for logging
             }
             
             if create_annotation(annotation_data, access_token, org, is_custom_instance, base_url, log_file):
@@ -503,7 +505,9 @@ def create_annotation(annotation_data, access_token, org, is_custom_instance, ba
         response = requests.post(api_url, headers=headers, json=annotation_data)
         
         if response.status_code == 200:
-            log_message(log_file, f"✓ Created annotation '{annotation_data['name']}' for SLO '{annotation_data['slo']}'", "SUCCESS")
+            # Use display name if available, otherwise fall back to internal name
+            slo_name_for_log = annotation_data.get('slo_display_name', annotation_data['slo'])
+            log_message(log_file, f"✓ Created annotation '{annotation_data['name']}' for SLO '{slo_name_for_log}'", "SUCCESS")
             return True
         elif response.status_code == 409:
             log_message(log_file, f"⚠ Annotation '{annotation_data['name']}' already exists for SLO '{annotation_data['slo']}'", "WARNING")
@@ -654,6 +658,170 @@ def list_individual_slos(slos_data, access_token, org, is_custom_instance, base_
         access_token, org, is_custom_instance, base_url, log_file
     )
 
+def identify_composite_slos(slos_data):
+    """Identify composite SLOs and their component SLOs."""
+    composite_slos = []
+    component_slos = []
+    
+    for slo in slos_data:
+        slo_spec = slo.get('spec', {})
+        objectives = slo_spec.get('objectives', [])
+        
+        # Check if this is a composite SLO by looking for composite objectives
+        is_composite = False
+        for objective in objectives:
+            if objective.get('composite'):
+                is_composite = True
+                break
+        
+        if is_composite:
+            composite_slos.append(slo)
+        else:
+            # This is a component SLO
+            component_slos.append(slo)
+    
+    return composite_slos, component_slos
+
+def extract_composite_components(composite_slo):
+    """Extract component SLOs from a composite SLO definition."""
+    components = []
+    spec = composite_slo.get('spec', {})
+    objectives = spec.get('objectives', [])
+    
+    for objective in objectives:
+        composite_def = objective.get('composite', {})
+        if composite_def:
+            component_objectives = composite_def.get('components', {}).get('objectives', [])
+            for component in component_objectives:
+                components.append({
+                    'project': component.get('project'),
+                    'slo': component.get('slo'),
+                    'objective': component.get('objective')
+                })
+    
+    return components
+
+def find_component_slos(slos_data, component_refs):
+    """Find the actual SLO objects that match the component references."""
+    found_slos = []
+    
+    for component_ref in component_refs:
+        target_project = component_ref.get('project')
+        target_slo_name = component_ref.get('slo')
+        
+        for slo in slos_data:
+            slo_project = slo.get('metadata', {}).get('project')
+            slo_name = slo.get('metadata', {}).get('name')
+            
+            if slo_project == target_project and slo_name == target_slo_name:
+                found_slos.append(slo)
+                break
+    
+    return found_slos
+
+def list_composite_slos(slos_data, access_token, org, is_custom_instance, base_url, log_file):
+    """List composite SLOs and create annotations for all their components."""
+    log_message(log_file, "\nComposite SLOs:", "INFO")
+    
+    # Identify composite SLOs
+    composite_slos, _ = identify_composite_slos(slos_data)
+    
+    # Log the findings for debugging
+    log_message(log_file, f"Found {len(composite_slos)} composite SLOs", "INFO")
+    
+    if not composite_slos:
+        print_colored("No composite SLOs found.", Colors.YELLOW)
+        print_colored("Note: Composite SLOs are identified by having composite objectives.", Colors.CYAN)
+        return
+    
+    # Display composite SLOs with their actual component counts
+    print_colored(f"\nFound {len(composite_slos)} composite SLO(s):", Colors.CYAN)
+    composite_details = []
+    
+    for i, composite in enumerate(composite_slos, 1):
+        composite_display_name = composite.get('metadata', {}).get('displayName', 'Unknown')
+        composite_name = composite.get('metadata', {}).get('name', 'Unknown')
+        composite_project = composite.get('metadata', {}).get('project', 'Unknown')
+        
+        # Extract component references from this composite
+        component_refs = extract_composite_components(composite)
+        component_count = len(component_refs)
+        
+        # Find actual SLO objects for these components
+        actual_components = find_component_slos(slos_data, component_refs)
+        
+        composite_details.append({
+            'composite': composite,
+            'component_refs': component_refs,
+            'actual_components': actual_components
+        })
+        
+        # Use displayName as main identifier, with internal name in parentheses
+        display_text = composite_display_name if composite_display_name != 'Unknown' else composite_name
+        print(f"  [{i}] {Colors.GREEN}{display_text}{Colors.NC} ({Colors.WHITE}{composite_name}{Colors.NC}, Project: {Colors.YELLOW}{composite_project}{Colors.NC}, {Colors.CYAN}{component_count}{Colors.NC} component SLOs)")
+    
+    # Get user selection
+    while True:
+        try:
+            choice = int(input("Select a composite SLO by number: "))
+            if 1 <= choice <= len(composite_slos):
+                selected_detail = composite_details[choice - 1]
+                selected_composite = selected_detail['composite']
+                selected_components = selected_detail['actual_components']
+                break
+            else:
+                print_colored(f"Please enter a number between 1 and {len(composite_slos)}.", Colors.RED)
+        except ValueError:
+            print_colored("Please enter a valid number.", Colors.RED)
+        except KeyboardInterrupt:
+            print_colored("\nOperation cancelled.", Colors.CYAN)
+            return
+    
+    selected_composite_name = selected_composite.get('metadata', {}).get('name', 'Unknown')
+    selected_composite_display_name = selected_composite.get('metadata', {}).get('displayName', selected_composite_name)
+    log_message(log_file, f"Selected composite SLO: {selected_composite_name}", "SUCCESS")
+    
+    # Show what will be affected
+    print_colored(f"\nThis will create annotations for:", Colors.CYAN)
+    print_colored(f"  • Composite SLO: {Colors.GREEN}{selected_composite_display_name}{Colors.NC}", Colors.WHITE)
+    print_colored(f"  • {len(selected_components)} component SLOs:", Colors.GREEN)
+    
+    # Show the component details
+    for i, component_ref in enumerate(selected_detail['component_refs'], 1):
+        project = component_ref.get('project', 'Unknown')
+        slo_name = component_ref.get('slo', 'Unknown')
+        
+        # Try to find the actual SLO object to get its displayName
+        slo_display_name = slo_name  # Default to the name if we can't find displayName
+        for slo in slos_data:
+            if (slo.get('metadata', {}).get('project') == project and 
+                slo.get('metadata', {}).get('name') == slo_name):
+                slo_display_name = slo.get('metadata', {}).get('displayName', slo_name)
+                break
+        
+        print(f"    {i}. {Colors.GREEN}{slo_display_name}{Colors.NC} (Project: {Colors.YELLOW}{project}{Colors.NC})")
+    
+    # Get annotation details and create annotations
+    description, start_time, end_time = get_annotation_details(log_file)
+    
+    # Create annotation for the composite SLO itself
+    print_colored(f"\nCreating annotation for composite SLO: {selected_composite_display_name}", Colors.CYAN)
+    create_annotations_for_slos(
+        [selected_composite], description, start_time, end_time,
+        access_token, org, is_custom_instance, base_url, log_file
+    )
+    
+    # Create annotations for the actual component SLOs
+    if selected_components:
+        print_colored(f"\nCreating annotations for {len(selected_components)} component SLOs", Colors.CYAN)
+        create_annotations_for_slos(
+            selected_components, description, start_time, end_time,
+            access_token, org, is_custom_instance, base_url, log_file
+        )
+    else:
+        print_colored(f"\n⚠ Warning: Could not find actual SLO objects for the components", Colors.YELLOW)
+        print_colored("   Only the composite SLO annotation was created.", Colors.YELLOW)
+
 def main():
     """Main function."""
     print_colored("Nobl9 Annotation Creator", Colors.CYAN)
@@ -692,6 +860,7 @@ def main():
         print("  [1] Apply to all SLOs in a Project")
         print("  [2] Apply to all SLOs in a Service")
         print("  [3] Apply to selected individual SLOs")
+        print("  [4] Apply to Composite SLO and all its components")
         print("  [x] Exit")
         
         try:
@@ -703,12 +872,14 @@ def main():
                 list_services(slos_data, access_token, org, is_custom_instance, base_url, log_file)
             elif choice == "3":
                 list_individual_slos(slos_data, access_token, org, is_custom_instance, base_url, log_file)
+            elif choice == "4":
+                list_composite_slos(slos_data, access_token, org, is_custom_instance, base_url, log_file)
             elif choice == "x":
                 log_message(log_file, "Annotation Creator completed", "INFO")
                 print_colored("Goodbye!", Colors.CYAN)
                 sys.exit(0)
             else:
-                print_colored("Invalid option. Please select 1, 2, 3, or x.", Colors.RED)
+                print_colored("Invalid option. Please select 1, 2, 3, 4, or x.", Colors.RED)
         except KeyboardInterrupt:
             print_colored("\nScript interrupted. Exiting.", Colors.RED)
             sys.exit(1)
