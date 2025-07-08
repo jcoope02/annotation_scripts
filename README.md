@@ -1,6 +1,6 @@
 # Nobl9 Annotations Scripts
 
-A collection of Python scripts for managing Nobl9 SLO annotations. This folder contains tools for creating, retrieving, and analyzing annotations via the Nobl9 Annotations API.
+A collection of Python scripts for managing Nobl9 SLO annotations. This folder contains tools for creating, retrieving, and analyzing annotations via the Nobl9 Annotations API. Windows support has not been added yet.
 
 ## Scripts Overview
 
