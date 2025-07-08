@@ -8,7 +8,8 @@ A collection of Python scripts for managing Nobl9 SLO annotations. This folder c
 **Purpose**: Create bulk annotations interactively with support for project, service, or individual SLO level annotation creation.
 
 **Key Features**:
-- **Multiple Target Types**: Apply annotations to all SLOs in a project, service, or selected individual SLOs
+- **Multiple Target Types**: Apply annotations to all SLOs in a project, service, selected individual SLOs, or composite SLOs and their components
+- **Composite SLO Support**: Create annotations for composite SLOs and all their component SLOs automatically
 - **Unique UUID Per Annotation**: Each annotation gets its own unique UUID identifier
 - **Markdown Support**: Rich text descriptions with links
 - **Timestamp Validation**: Ensures proper RFC3339 format with automatic correction
@@ -71,6 +72,7 @@ python3 annotation_creator.py
    - **Project**: Apply to all SLOs in a specific project
    - **Service**: Apply to all SLOs in a specific service
    - **Individual**: Select specific SLOs by number
+   - **Composite**: Apply to a composite SLO and all its component SLOs
 6. **Annotation Details**: Enter description, optional external hyperlink, and time range
 7. **Creation**: Creates annotations via the Nobl9 API with progress feedback
 
@@ -115,6 +117,45 @@ The script prompts you to add external hyperlinks after entering the description
 2. If hyperlink text is provided, enter the URL
 3. The script automatically formats it as Markdown and appends to description
 
+#### Composite SLO Support
+
+The script includes special support for composite SLOs, which are SLOs that aggregate multiple component SLOs:
+
+**Composite SLO Detection**
+- Automatically detects composite SLOs by looking for `composite` objectives
+- Extracts component SLO references from the composite definition
+- Shows user-friendly display names with internal names for reference
+
+**Composite Annotation Process**
+When you select a composite SLO:
+1. **Composite SLO**: Creates an annotation for the composite SLO itself
+2. **Component SLOs**: Creates annotations for all component SLOs that make up the composite
+3. **Visual Feedback**: Shows which components will be affected with their display names
+4. **Progress Tracking**: Reports success for both composite and component annotations
+
+**Example Composite Session**
+```
+Found 2 composite SLO(s):
+  [1] Site A Composite (d5c85e0d-c32e-4817-9b8c-1376fdaca492, Project: network, 3 component SLOs)
+  [2] User Experience (user-experience, Project: mobile-app, 2 component SLOs)
+
+Select a composite SLO by number: 1
+
+This will create annotations for:
+  • Composite SLO: Site A Composite
+  • 3 component SLOs:
+    1. Network Latency (Project: network)
+    2. Network Loss (Project: network)
+    3. Network Throughput (Project: network)
+
+Creating annotation for composite SLO: Site A Composite
+Creating annotations for 3 component SLOs
+✓ Created annotation 'uuid-1' for SLO 'Site A Composite'
+✓ Created annotation 'uuid-2' for SLO 'Network Latency'
+✓ Created annotation 'uuid-3' for SLO 'Network Loss'
+✓ Created annotation 'uuid-4' for SLO 'Network Throughput'
+```
+
 #### Example Session
 ```
 Nobl9 Annotation Creator
@@ -136,6 +177,7 @@ Choose how to apply annotations:
   [1] Apply to all SLOs in a Project
   [2] Apply to all SLOs in a Service
   [3] Apply to selected individual SLOs
+  [4] Apply to Composite SLO and all its components
   [x] Exit
 
 Select an option: 1
