@@ -49,3 +49,5 @@ Thumbs.db
 
 # Logs
 *.log 
+
+# Colorama is a runtime dependency for colored terminal output 

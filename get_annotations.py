@@ -13,58 +13,32 @@ Author: Jeremy Cooper
 Date Created: 2025-07-02
 """
 
-import requests
-import sys
-import json
 import base64
+import json
 import os
-import toml
+import re
 import shutil
 import subprocess
-import re
+import sys
 from datetime import datetime, timedelta
 
-# Ensure required Python modules and sloctl CLI are available
+import requests
+import toml
+from colorama import Fore, Style, init
+
+init(autoreset=True)
+
+
 def check_dependencies():
-    missing = []
-    try:
-        import requests
-    except ImportError:
-        missing.append("requests")
-    try:
-        import pandas
-    except ImportError:
-        missing.append("pandas")
-    try:
-        import openpyxl
-    except ImportError:
-        missing.append("openpyxl")
-    try:
-        import toml
-    except ImportError:
-        missing.append("toml")
-    try:
-        import tabulate
-    except ImportError:
-        missing.append("tabulate")
-
+    """Check if required dependencies are available."""
     if not shutil.which("sloctl"):
-        print("ERROR: 'sloctl' is not installed or not in PATH.")
-        print("You can install it from https://docs.nobl9.com/sloctl/")
-        sys.exit(1)
-
-    if missing:
-        print("\nMissing required Python packages:")
-        for pkg in missing:
-            note = " (required for Excel export)" if pkg == "openpyxl" else ""
-            note = " (required for table display)" if pkg == "tabulate" else note
-            print(f"  - {pkg}{note}")
-        print("\nYou can install them using:")
-        print("  pip3 install " + " ".join(missing))
+        print(f"{Fore.RED}ERROR: 'sloctl' is not installed or not in PATH.{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}You can install it from https://docs.nobl9.com/sloctl/{Style.RESET_ALL}")
         sys.exit(1)
 
 # Decode JWT token to extract organization info
 def decode_jwt_payload(token):
+    """Decode JWT token to extract organization info."""
     try:
         # JWT has three parts: header.payload.signature
         payload_b64 = token.split('.')[1]
@@ -74,22 +48,24 @@ def decode_jwt_payload(token):
         payload = json.loads(payload_json)
         # Look for organization in m2mProfile
         return payload.get('m2mProfile', {}).get('organization', None)
-    except Exception as e:
+    except Exception:
         return None
 
 def load_contexts_from_toml():
+    """Load and parse TOML configuration."""
     default_toml_path = os.path.expanduser("~/.config/nobl9/config.toml")
     if not os.path.isfile(default_toml_path):
-        print("TOML config file not found at expected path:")
+        print(f"{Fore.YELLOW}TOML config file not found at expected path:{Style.RESET_ALL}")
         print(f"  {default_toml_path}")
         try:
-            user_path = input("\nPlease provide the full path to your Nobl9 config.toml file: ").strip()
+            user_path = input(f"{Fore.CYAN}Please provide the full path to your Nobl9 {Style.RESET_ALL}"
+                            f"{Fore.CYAN}config.toml file:{Style.RESET_ALL} ").strip()
             if not os.path.isfile(user_path):
-                print(f"ERROR: Could not find TOML file at {user_path}")
+                print(f"{Fore.RED}ERROR: Could not find TOML file at {user_path}{Style.RESET_ALL}")
                 return {}
             toml_path = user_path
         except KeyboardInterrupt:
-            print("\nExiting...")
+            print(f"\n{Fore.YELLOW}Exiting...{Style.RESET_ALL}")
             sys.exit(0)
     else:
         toml_path = default_toml_path
@@ -118,35 +94,36 @@ def load_contexts_from_toml():
                 }
         return parsed_contexts
     except Exception as e:
-        print(f"Failed to parse TOML config: {e}")
+        print(f"{Fore.RED}Failed to parse TOML config: {e}{Style.RESET_ALL}")
         return {}
 
 def enhanced_choose_context():
+    """Enhanced context selection with custom instance support."""
     contexts_dict = load_contexts_from_toml()
     if not contexts_dict:
-        print("No valid contexts found. Please ensure your config.toml is set up correctly.")
+        print(f"{Fore.RED}No valid contexts found. Please ensure your config.toml is set up correctly.{Style.RESET_ALL}")
         sys.exit(1)
     context_names = list(contexts_dict.keys())
     if len(context_names) == 1:
         selected = context_names[0]
         return selected, contexts_dict[selected]
-    print("\nAvailable contexts:")
+    print(f"\n{Fore.CYAN}Available contexts:{Style.RESET_ALL}")
     for i, name in enumerate(context_names, 1):
         print(f"  [{i}] {name}")
     try:
-        choice = input("Select a context: ").strip()
+        choice = input(f"{Fore.CYAN}Select a context:{Style.RESET_ALL} ").strip()
         index = int(choice) - 1
         selected = context_names[index]
         return selected, contexts_dict[selected]
     except (ValueError, IndexError):
-        print("ERROR: Invalid context selection.")
+        print(f"{Fore.RED}ERROR: Invalid context selection.{Style.RESET_ALL}")
         sys.exit(1)
     except KeyboardInterrupt:
-        print("\nExiting...")
+        print(f"\n{Fore.YELLOW}Exiting...{Style.RESET_ALL}")
         sys.exit(0)
 
 def validate_date_format(date_str):
-    """Validate date format YYYY-MM-DD"""
+    """Validate date format YYYY-MM-DD."""
     if not re.match(r'^\d{4}-\d{2}-\d{2}$', date_str):
         return False
     try:
@@ -155,8 +132,9 @@ def validate_date_format(date_str):
     except ValueError:
         return False
 
+
 def validate_timestamp_format(timestamp_str):
-    """Validate RFC3339 timestamp format"""
+    """Validate RFC3339 timestamp format."""
     try:
         # Handle both with and without 'Z' suffix
         if timestamp_str.endswith('Z'):
@@ -167,10 +145,11 @@ def validate_timestamp_format(timestamp_str):
         return False
 
 def authenticate(credentials):
+    """Authenticate with Nobl9 API using credentials."""
     client_id = credentials.get("clientId")
     client_secret = credentials.get("clientSecret")
     if not client_id or not client_secret:
-        print("ERROR: Missing credentials in context.")
+        print(f"{Fore.RED}ERROR: Missing credentials in context.{Style.RESET_ALL}")
         sys.exit(1)
     org_id = credentials.get("organization")
     # Try decoding accessToken if organization is not in config
@@ -182,13 +161,14 @@ def authenticate(credentials):
     # Fall back to user input if no organization ID is found
     if not org_id:
         try:
-            org_id = input("Enter Nobl9 Organization ID (find in Nobl9 UI under Settings > Account): ").strip()
+            org_id = input(f"{Fore.CYAN}Enter Nobl9 Organization ID (find in Nobl9 UI under "
+                          f"{Fore.CYAN}Settings > Account):{Style.RESET_ALL} ").strip()
         except KeyboardInterrupt:
-            print("\nExiting...")
+            print(f"\n{Fore.YELLOW}Exiting...{Style.RESET_ALL}")
             sys.exit(0)
     # Validate org_id
     if not org_id:
-        print("ERROR: Organization ID is required.")
+        print(f"{Fore.RED}ERROR: Organization ID is required.{Style.RESET_ALL}")
         sys.exit(1)
     encoded_creds = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
     headers = {
@@ -204,7 +184,7 @@ def authenticate(credentials):
     okta_auth_server = credentials.get("oktaAuthServer")
     
     if is_custom_instance and base_url:
-        print(f"API base url: {base_url}")
+        print(f"{Fore.CYAN}API base url: {base_url}{Style.RESET_ALL}")
         # Use custom base URL for authentication
         auth_url = f"{base_url}/accessToken"
     else:
@@ -213,7 +193,7 @@ def authenticate(credentials):
     try:
         response = requests.post(auth_url, headers=headers, timeout=30)
         if response.status_code != 200:
-            print("ERROR: Authentication failed")
+            print(f"{Fore.RED}ERROR: Authentication failed{Style.RESET_ALL}")
             try:
                 error_data = response.json()
                 if "error" in error_data:
@@ -225,51 +205,52 @@ def authenticate(credentials):
                             json_match = re.search(r'\{.*\}', error_info)
                             if json_match:
                                 nested_error = json.loads(json_match.group())
-                                print(f"  Error Code: {nested_error.get('errorCode', 'Unknown')}")
-                                print(f"  Summary: {nested_error.get('errorSummary', 'No summary provided')}")
-                                print(f"  Error ID: {nested_error.get('errorId', 'No ID provided')}")
+                                print(f"{Fore.RED}  Error Code: {nested_error.get('errorCode', 'Unknown')}{Style.RESET_ALL}")
+                                print(f"{Fore.RED}  Summary: {nested_error.get('errorSummary', 'No summary provided')}{Style.RESET_ALL}")
+                                print(f"{Fore.RED}  Error ID: {nested_error.get('errorId', 'No ID provided')}{Style.RESET_ALL}")
                                 if nested_error.get('errorCauses'):
-                                    print(f"  Causes: {nested_error['errorCauses']}")
+                                    print(f"{Fore.RED}  Causes: {nested_error['errorCauses']}{Style.RESET_ALL}")
                             else:
                                 # If no JSON found, show the raw error string
-                                print(f"  Error: {error_info}")
+                                print(f"{Fore.RED}  Error: {error_info}{Style.RESET_ALL}")
                         except json.JSONDecodeError:
                             # If nested parsing fails, show the raw error string
-                            print(f"  Error: {error_info}")
+                            print(f"{Fore.RED}  Error: {error_info}{Style.RESET_ALL}")
                     else:
                         # Error is already a dictionary
-                        print(f"  Error Code: {error_info.get('errorCode', 'Unknown')}")
-                        print(f"  Summary: {error_info.get('errorSummary', 'No summary provided')}")
-                        print(f"  Error ID: {error_info.get('errorId', 'No ID provided')}")
+                        print(f"{Fore.RED}  Error Code: {error_info.get('errorCode', 'Unknown')}{Style.RESET_ALL}")
+                        print(f"{Fore.RED}  Summary: {error_info.get('errorSummary', 'No summary provided')}{Style.RESET_ALL}")
+                        print(f"{Fore.RED}  Error ID: {error_info.get('errorId', 'No ID provided')}{Style.RESET_ALL}")
                         if error_info.get('errorCauses'):
-                            print(f"  Causes: {error_info['errorCauses']}")
+                            print(f"{Fore.RED}  Causes: {error_info['errorCauses']}{Style.RESET_ALL}")
                 elif "message" in error_data:
-                    print(f"  Message: {error_data['message']}")
+                    print(f"{Fore.RED}  Message: {error_data['message']}{Style.RESET_ALL}")
                 else:
-                    print(f"  Response: {response.text}")
+                    print(f"{Fore.RED}  Response: {response.text}{Style.RESET_ALL}")
             except json.JSONDecodeError:
-                print(f"  Raw response: {response.text}")
+                print(f"{Fore.RED}  Raw response: {response.text}{Style.RESET_ALL}")
             sys.exit(1)
         
         token_data = response.json()
         token = token_data.get("access_token")
         if not token:
-            print("ERROR: No access token in response")
+            print(f"{Fore.RED}ERROR: No access token in response{Style.RESET_ALL}")
             print(f"  Response: {response.text}")
             sys.exit(1)
         return token, org_id
     except requests.exceptions.Timeout:
-        print("ERROR: Authentication request timed out")
+        print(f"{Fore.RED}ERROR: Authentication request timed out{Style.RESET_ALL}")
         sys.exit(1)
     except requests.exceptions.RequestException as e:
-        print(f"ERROR: Network error during authentication: {e}")
+        print(f"{Fore.RED}ERROR: Network error during authentication: {e}{Style.RESET_ALL}")
         sys.exit(1)
     except json.JSONDecodeError:
-        print("ERROR: Invalid JSON response from authentication endpoint")
+        print(f"{Fore.RED}ERROR: Invalid JSON response from authentication endpoint{Style.RESET_ALL}")
         print(f"  Response: {response.text}")
         sys.exit(1)
 
-def fetch_annotations(token, org, start_time, end_time, is_custom_instance=False, custom_base_url=None):
+def fetch_annotations(token, org, start_time, end_time, is_custom_instance=False,
+                     custom_base_url=None):
     """Fetch annotations from the Nobl9 API with time filtering."""
     annotations = []
     
@@ -284,10 +265,10 @@ def fetch_annotations(token, org, start_time, end_time, is_custom_instance=False
         start_dt = datetime.fromisoformat(start_time.replace('Z', ''))
         end_dt = datetime.fromisoformat(end_time.replace('Z', ''))
         if start_dt > end_dt:
-            print("ERROR: Start time is after end time")
+            print(f"{Fore.RED}ERROR: Start time is after end time{Style.RESET_ALL}")
             sys.exit(1)
     except ValueError as e:
-        print(f"ERROR: Invalid timestamp format: {e}")
+        print(f"{Fore.RED}ERROR: Invalid timestamp format: {e}{Style.RESET_ALL}")
         sys.exit(1)
 
     headers = {
@@ -297,7 +278,7 @@ def fetch_annotations(token, org, start_time, end_time, is_custom_instance=False
         "Project": "*"
     }
     
-    print(f"\nFetching annotations...")
+    print(f"\n{Fore.CYAN}Fetching annotations...{Style.RESET_ALL}")
     print(f"Time range: {start_time} to {end_time}")
     print("Progress:")
     
@@ -316,7 +297,7 @@ def fetch_annotations(token, org, start_time, end_time, is_custom_instance=False
         )
         
         if response.status_code != 200:
-            print(f"ERROR: API request failed (Status: {response.status_code})")
+            print(f"{Fore.RED}ERROR: API request failed (Status: {response.status_code}){Style.RESET_ALL}")
             try:
                 error_data = response.json()
                 if "error" in error_data:
@@ -328,26 +309,26 @@ def fetch_annotations(token, org, start_time, end_time, is_custom_instance=False
                             json_match = re.search(r'\{.*\}', error_info)
                             if json_match:
                                 nested_error = json.loads(json_match.group())
-                                print(f"  Error Code: {nested_error.get('errorCode', 'Unknown')}")
-                                print(f"  Summary: {nested_error.get('errorSummary', 'No summary provided')}")
-                                print(f"  Error ID: {nested_error.get('errorId', 'No ID provided')}")
+                                print(f"{Fore.RED}  Error Code: {nested_error.get('errorCode', 'Unknown')}{Style.RESET_ALL}")
+                                print(f"{Fore.RED}  Summary: {nested_error.get('errorSummary', 'No summary provided')}{Style.RESET_ALL}")
+                                print(f"{Fore.RED}  Error ID: {nested_error.get('errorId', 'No ID provided')}{Style.RESET_ALL}")
                             else:
                                 # If no JSON found, show the raw error string
-                                print(f"  Error: {error_info}")
+                                print(f"{Fore.RED}  Error: {error_info}{Style.RESET_ALL}")
                         except json.JSONDecodeError:
                             # If nested parsing fails, show the raw error string
-                            print(f"  Error: {error_info}")
+                            print(f"{Fore.RED}  Error: {error_info}{Style.RESET_ALL}")
                     else:
                         # Error is already a dictionary
-                        print(f"  Error Code: {error_info.get('errorCode', 'Unknown')}")
-                        print(f"  Summary: {error_info.get('errorSummary', 'No summary provided')}")
-                        print(f"  Error ID: {error_info.get('errorId', 'No ID provided')}")
+                        print(f"{Fore.RED}  Error Code: {error_info.get('errorCode', 'Unknown')}{Style.RESET_ALL}")
+                        print(f"{Fore.RED}  Summary: {error_info.get('errorSummary', 'No summary provided')}{Style.RESET_ALL}")
+                        print(f"{Fore.RED}  Error ID: {error_info.get('errorId', 'No ID provided')}{Style.RESET_ALL}")
                 elif "message" in error_data:
-                    print(f"  Message: {error_data['message']}")
+                    print(f"{Fore.RED}  Message: {error_data['message']}{Style.RESET_ALL}")
                 else:
-                    print(f"  Response: {response.text}")
+                    print(f"{Fore.RED}  Response: {response.text}{Style.RESET_ALL}")
             except json.JSONDecodeError:
-                print(f"  Raw response: {response.text}")
+                print(f"{Fore.RED}  Raw response: {response.text}{Style.RESET_ALL}")
             sys.exit(1)
         
         data = response.json()
@@ -360,22 +341,22 @@ def fetch_annotations(token, org, start_time, end_time, is_custom_instance=False
             # API returned an object with annotations key
             annotations = data.get("annotations", [])
         else:
-            print(f"ERROR: Unexpected response format: {type(data)}")
+            print(f"{Fore.RED}ERROR: Unexpected response format: {type(data)}{Style.RESET_ALL}")
             sys.exit(1)
         
-        print(f" Found {len(annotations)} annotations")
+        print(f" {Fore.GREEN}Found {len(annotations)} annotations{Style.RESET_ALL}")
         
     except requests.exceptions.Timeout:
-        print("ERROR: API request timed out")
+        print(f"{Fore.RED}ERROR: API request timed out{Style.RESET_ALL}")
         sys.exit(1)
     except requests.exceptions.RequestException as e:
-        print(f"ERROR: Network error during API request: {e}")
+        print(f"{Fore.RED}ERROR: Network error during API request: {e}{Style.RESET_ALL}")
         sys.exit(1)
     except Exception as e:
-        print(f"ERROR: Failed to fetch annotations: {e}")
+        print(f"{Fore.RED}ERROR: Failed to fetch annotations: {e}{Style.RESET_ALL}")
         sys.exit(1)
     
-    print(f"Annotation collection complete!")
+    print(f"Annotation collection complete!{Style.RESET_ALL}")
     print(f"Total annotations retrieved: {len(annotations)}")
     
     # Sort annotations by timestamp
@@ -386,7 +367,7 @@ def fetch_annotations(token, org, start_time, end_time, is_custom_instance=False
 def select_time_period():
     """Allow user to select time period for annotation filtering."""
     while True:
-        print("\nSelect time period:")
+        print(f"\n{Fore.CYAN}Select time period:{Style.RESET_ALL}")
         print("  [1] Past 24 hours")
         print("  [2] Past 7 days")
         print("  [3] Past 14 days")
@@ -395,9 +376,9 @@ def select_time_period():
         print("  [6] Custom range")
         
         try:
-            choice = input("Enter choice: ").strip()
+            choice = input(f"{Fore.CYAN}Enter choice:{Style.RESET_ALL} ").strip()
             if not choice:
-                print("ERROR: Please enter a choice.")
+                print(f"{Fore.RED}ERROR: Please enter a choice.{Style.RESET_ALL}")
                 continue
                 
             choice = int(choice)
@@ -421,37 +402,41 @@ def select_time_period():
                 return start_time, end_time
             elif choice == 5:
                 while True:
-                    day = input("Enter date (YYYY-MM-DD): ").strip()
+                    day = input(f"{Fore.CYAN}Enter date (YYYY-MM-DD):{Style.RESET_ALL} ").strip()
                     if validate_date_format(day):
                         start_time = f"{day}T00:00:00Z"
                         end_time = f"{day}T23:59:59Z"
                         return start_time, end_time
                     else:
-                        print("ERROR: Invalid date format. Please use YYYY-MM-DD")
+                        print(f"{Fore.RED}ERROR: Invalid date format. Please use YYYY-MM-DD{Style.RESET_ALL}")
             elif choice == 6:
                 while True:
-                    start_time = input("Enter start time (YYYY-MM-DDThh:mm:ssZ): ").strip()
+                    start_time = input(f"{Fore.CYAN}Enter start time (YYYY-MM-DDThh:mm:ssZ):{Style.RESET_ALL} "
+                                     f"").strip()
                     if validate_timestamp_format(start_time):
                         break
                     else:
-                        print("ERROR: Invalid start time format. Please use YYYY-MM-DDThh:mm:ssZ")
+                        print(f"{Fore.RED}ERROR: Invalid start time format. "
+                              f"{Fore.RED}Please use YYYY-MM-DDThh:mm:ssZ{Style.RESET_ALL}")
                 
                 while True:
-                    end_time = input("Enter end time (YYYY-MM-DDThh:mm:ssZ): ").strip()
+                    end_time = input(f"{Fore.CYAN}Enter end time (YYYY-MM-DDThh:mm:ssZ):{Style.RESET_ALL} "
+                                   f"").strip()
                     if validate_timestamp_format(end_time):
                         break
                     else:
-                        print("ERROR: Invalid end time format. Please use YYYY-MM-DDThh:mm:ssZ")
+                        print(f"{Fore.RED}ERROR: Invalid end time format. "
+                              f"{Fore.RED}Please use YYYY-MM-DDThh:mm:ssZ{Style.RESET_ALL}")
                 
                 return start_time, end_time
             else:
-                print("ERROR: Invalid choice. Please enter a number between 1 and 6.")
+                print(f"{Fore.RED}ERROR: Invalid choice. Please enter a number between 1 and 6.{Style.RESET_ALL}")
                 continue
         except ValueError:
-            print("ERROR: Invalid input. Please enter a number.")
+            print(f"{Fore.RED}ERROR: Invalid input. Please enter a number.{Style.RESET_ALL}")
             continue
         except KeyboardInterrupt:
-            print("\nExiting...")
+            print(f"\n{Fore.YELLOW}Exiting...{Style.RESET_ALL}")
             sys.exit(0)
 
 def analyze_annotation_types(annotations):
@@ -461,7 +446,7 @@ def analyze_annotation_types(annotations):
         annotation_type = annotation.get("category", "Unknown")
         type_counts[annotation_type] = type_counts.get(annotation_type, 0) + 1
     
-    print("\nAnnotation Types Found:")
+    print(f"\n{Fore.CYAN}Annotation Types Found:{Style.RESET_ALL}")
     for annotation_type, count in sorted(type_counts.items()):
         print(f"  - {annotation_type}: {count} annotations")
     
@@ -472,7 +457,7 @@ def select_annotation_types(available_types):
     type_list = list(available_types.keys())
     
     while True:
-        print("\nSelect annotation types to view:")
+        print(f"\n{Fore.CYAN}Select annotation types to view:{Style.RESET_ALL}")
         print("  [0] All annotation types")
         for i, annotation_type in enumerate(type_list, 1):
             count = available_types[annotation_type]
@@ -480,7 +465,7 @@ def select_annotation_types(available_types):
         print("  Or enter multiple numbers (comma-separated, e.g., 1,3,5)")
         
         try:
-            choice = input("Enter choice: ").strip()
+            choice = input(f"{Fore.CYAN}Enter choice:{Style.RESET_ALL} ").strip()
             
             # Handle "0" for all types
             if choice == "0":
@@ -488,7 +473,8 @@ def select_annotation_types(available_types):
             
             # Handle comma-separated numbers
             if "," in choice:
-                selected_numbers = [num.strip() for num in choice.split(",") if num.strip()]
+                selected_numbers = [num.strip() for num in choice.split(",") 
+                                 if num.strip()]
                 selected_types = set()
                 has_zero = False
                 
@@ -500,21 +486,22 @@ def select_annotation_types(available_types):
                         elif 1 <= num <= len(type_list):
                             selected_types.add(type_list[num-1])
                         else:
-                            print(f"ERROR: Invalid number {num}. Must be between 0 and {len(type_list)}")
+                            print(f"{Fore.RED}ERROR: Invalid number {num}. "
+                                  f"{Fore.RED}Must be between 0 and {len(type_list)}{Style.RESET_ALL}")
                             continue
                     except ValueError:
-                        print(f"ERROR: Invalid input '{num_str}'. Must be a number.")
+                        print(f"{Fore.RED}ERROR: Invalid input '{num_str}'. Must be a number.{Style.RESET_ALL}")
                         continue
                 
                 # If 0 is included, return all types (ignore other numbers)
                 if has_zero:
-                    print("Note: '0' (all types) selected - ignoring other numbers")
+                    print(f"{Fore.YELLOW}Note: '0' (all types) selected - ignoring other numbers{Style.RESET_ALL}")
                     return set(type_list)
                 
                 if selected_types:
                     return selected_types
                 else:
-                    print("ERROR: No valid types selected.")
+                    print(f"{Fore.RED}ERROR: No valid types selected.{Style.RESET_ALL}")
                     continue
             
             # Handle single number
@@ -523,13 +510,15 @@ def select_annotation_types(available_types):
                 if 1 <= choice_num <= len(type_list):
                     return {type_list[choice_num-1]}  # Return selected type
                 else:
-                    print(f"ERROR: Invalid choice. Please enter a number between 0 and {len(type_list)}, or comma-separated numbers.")
+                    print(f"{Fore.RED}ERROR: Invalid choice. Please enter a number between "
+                          f"{Fore.RED}0 and {len(type_list)}, or comma-separated numbers.{Style.RESET_ALL}")
                     continue
             except ValueError:
-                print("ERROR: Invalid input. Please enter a number or comma-separated numbers.")
+                print(f"{Fore.RED}ERROR: Invalid input. Please enter a number or "
+                      f"{Fore.RED}comma-separated numbers.{Style.RESET_ALL}")
                 continue
         except KeyboardInterrupt:
-            print("\nExiting...")
+            print(f"\n{Fore.YELLOW}Exiting...{Style.RESET_ALL}")
             sys.exit(0)
 
 def format_timestamp(iso_string):
@@ -540,13 +529,15 @@ def format_timestamp(iso_string):
     except Exception:
         return iso_string
 
+
 def extract_slo_and_project_names(annotation):
     """Extract SLO and project names from annotation (top-level fields)."""
     slo = annotation.get("slo")
     project = annotation.get("project")
     slo_names = [slo] if slo else []
     project_names = [project] if project else []
-    return ", ".join(slo_names) if slo_names else "None", ", ".join(project_names) if project_names else "None"
+    return (", ".join(slo_names) if slo_names else "None",
+            ", ".join(project_names) if project_names else "None")
 
 def display_annotations(annotations, selected_types):
     """Display annotations in a formatted table."""
@@ -559,22 +550,27 @@ def display_annotations(annotations, selected_types):
     ]
     
     if not filtered_annotations:
-        print(f"\nNo annotations found for selected types: {', '.join(selected_types)}")
+        print(f"\n{Fore.YELLOW}No annotations found for selected types: "
+              f"{', '.join(selected_types)}{Style.RESET_ALL}")
         return
     
     # Format annotations for display
     rows = []
     for annotation in filtered_annotations:
         slos_display, projects_display = extract_slo_and_project_names(annotation)
+        description = annotation.get("description", "")
+        if len(description) > 50:
+            description = description[:50] + "..."
+        
         rows.append({
             "Time": format_timestamp(annotation.get("startTime", "")),
             "Type": annotation.get("category", ""),
-            "Description": annotation.get("description", "")[:50] + "..." if len(annotation.get("description", "")) > 50 else annotation.get("description", ""),
+            "Description": description,
             "SLOs": slos_display if slos_display else "None",
             "Projects": projects_display if projects_display else "None"
         })
 
-    print(f"\nAnnotation Table ({len(filtered_annotations)} annotations):")
+    print(f"\n{Fore.CYAN}Annotation Table ({len(filtered_annotations)} annotations):{Style.RESET_ALL}")
     print(tabulate(rows, headers="keys", tablefmt="simple"))
     
     return filtered_annotations
@@ -590,10 +586,10 @@ def export_annotations(annotations, context, export_format):
     try:
         os.makedirs("export_annotations", exist_ok=True)
     except PermissionError:
-        print("ERROR: Permission denied creating export directory")
+        print(f"{Fore.RED}ERROR: Permission denied creating export directory{Style.RESET_ALL}")
         return
     except Exception as e:
-        print(f"ERROR: Failed to create export directory: {e}")
+        print(f"{Fore.RED}ERROR: Failed to create export directory: {e}{Style.RESET_ALL}")
         return
     
     if export_format == "1":  # CSV
@@ -614,17 +610,17 @@ def export_annotations(annotations, context, export_format):
         try:
             df = pd.DataFrame(rows)
             df.to_csv(f"{base}.csv", index=False)
-            print(f"Exported to {base}.csv")
+            print(f"{Fore.GREEN}Exported to {base}.csv{Style.RESET_ALL}")
         except Exception as e:
-            print(f"ERROR: Failed to export CSV: {e}")
+            print(f"{Fore.RED}ERROR: Failed to export CSV: {e}{Style.RESET_ALL}")
         
     elif export_format == "2":  # JSON (full details)
         try:
             with open(f"{base}.json", "w") as f:
                 json.dump(annotations, f, indent=2)
-            print(f"Exported to {base}.json")
+            print(f"{Fore.GREEN}Exported to {base}.json{Style.RESET_ALL}")
         except Exception as e:
-            print(f"ERROR: Failed to export JSON: {e}")
+            print(f"{Fore.RED}ERROR: Failed to export JSON: {e}{Style.RESET_ALL}")
         
     elif export_format == "3":  # Excel
         # Create simplified table for Excel
@@ -644,12 +640,13 @@ def export_annotations(annotations, context, export_format):
         try:
             df = pd.DataFrame(rows)
             df.to_excel(f"{base}.xlsx", index=False)
-            print(f"Exported to {base}.xlsx")
+            print(f"{Fore.GREEN}Exported to {base}.xlsx{Style.RESET_ALL}")
         except Exception as e:
-            print(f"ERROR: Failed to export Excel: {e}")
+            print(f"{Fore.RED}ERROR: Failed to export Excel: {e}{Style.RESET_ALL}")
 
 def main():
-    print("Nobl9 Annotations Tool")
+    """Main function for the Nobl9 Annotations Tool."""
+    print(f"{Fore.CYAN}Nobl9 Annotations Tool{Style.RESET_ALL}")
     print("=" * 40)
     
     try:
@@ -658,7 +655,7 @@ def main():
         
         token, org = authenticate(credentials)
         if not token or not org:
-            print("ERROR: Authentication failed")
+            print(f"{Fore.RED}ERROR: Authentication failed{Style.RESET_ALL}")
             sys.exit(1)
         
         # Get custom instance information from credentials
@@ -669,10 +666,11 @@ def main():
         start_time, end_time = select_time_period()
         
         # Fetch annotations
-        annotations = fetch_annotations(token, org, start_time, end_time, is_custom_instance, custom_base_url)
+        annotations = fetch_annotations(token, org, start_time, end_time,
+                                     is_custom_instance, custom_base_url)
         
         if not annotations:
-            print("No annotations found in the specified time range.")
+            print(f"{Fore.YELLOW}No annotations found in the specified time range.{Style.RESET_ALL}")
             sys.exit(0)
         
         # Analyze annotation types
@@ -687,45 +685,45 @@ def main():
             filtered_annotations = display_annotations(annotations, selected_types)
             
             if not filtered_annotations:
-                print("No annotations found for selected types.")
+                print(f"{Fore.YELLOW}No annotations found for selected types.{Style.RESET_ALL}")
                 continue
             
             # Export options
-            print("\nExport options:")
+            print(f"\n{Fore.CYAN}Export options:{Style.RESET_ALL}")
             print("  [1] CSV")
             print("  [2] JSON (full details)")
             print("  [3] Excel")
             print("  [Enter] Skip export")
             
             try:
-                choice = input("\nSelect export format: ").strip()
+                choice = input(f"\n{Fore.CYAN}Select export format:{Style.RESET_ALL} ").strip()
                 if choice in ["1", "2", "3"]:
                     export_annotations(filtered_annotations, context_name, choice)
             except KeyboardInterrupt:
-                print("\nExiting...")
+                print(f"\n{Fore.YELLOW}Exiting...{Style.RESET_ALL}")
                 sys.exit(0)
             
             # Ask if user wants to continue or exit
-            print("\nOptions:")
+            print(f"\n{Fore.CYAN}Options:{Style.RESET_ALL}")
             print("  [1] Select different annotation types")
             print("  [2] Exit")
             
             try:
-                continue_choice = input("Enter choice: ").strip()
+                continue_choice = input(f"{Fore.CYAN}Enter choice:{Style.RESET_ALL} ").strip()
                 if continue_choice == "2":
-                    print("Exiting...")
+                    print(f"{Fore.YELLOW}Exiting...{Style.RESET_ALL}")
                     break
                 elif continue_choice != "1":
-                    print("Invalid choice. Continuing with type selection...")
+                    print(f"{Fore.RED}Invalid choice. Continuing with type selection...{Style.RESET_ALL}")
             except KeyboardInterrupt:
-                print("\nExiting...")
+                print(f"\n{Fore.YELLOW}Exiting...{Style.RESET_ALL}")
                 sys.exit(0)
             
     except KeyboardInterrupt:
-        print("\nExiting...")
+        print(f"\n{Fore.YELLOW}Exiting...{Style.RESET_ALL}")
         sys.exit(0)
     except Exception as e:
-        print(f"ERROR: Unexpected error: {e}")
+        print(f"{Fore.RED}ERROR: Unexpected error: {e}{Style.RESET_ALL}")
         sys.exit(1)
 
 if __name__ == "__main__":
